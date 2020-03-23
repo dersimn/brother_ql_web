@@ -80,14 +80,15 @@ All in all, the web server offers:
 
 ### Development
 
-'Cross-compile' with *Docker for Mac*:
+'Cross-compile' with *Docker for Mac* and `buildx`:
 
-    docker pull --platform arm arm32v7/python:3
-    docker build --no-cache -t brother_ql_web:armhf -f Dockerfile.armhf .
-
-Copy over to the Pi with:
-
-    docker save brother_ql_web:armhf | gzip | ssh root@10.1.1.145 'gunzip | docker load'
+    docker buildx create --name mybuilder --use
+    docker buildx inspect --bootstrap
+    docker buildx build \
+        --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6 \
+        -t dersimn/brother_ql_web \
+        -t dersimn/brother_ql_web:1.1.0 \
+        --push .
 
 ### License
 
