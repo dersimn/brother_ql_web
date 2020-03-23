@@ -153,7 +153,7 @@ def get_preview_image():
     label_type = context['kind']
     if label_type in (ROUND_DIE_CUT_LABEL,):
         draw = ImageDraw.Draw(im)
-        draw.ellipse([(0, 0), (im.size[0], im.size[1])])
+        draw.ellipse([(0, 0), (im.size[0] - 1, im.size[1] - 1)], outline='black')
     return_format = request.query.get('return_format', 'png')
     if return_format == 'base64':
         import base64
