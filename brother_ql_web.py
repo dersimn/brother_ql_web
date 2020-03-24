@@ -154,10 +154,6 @@ def create_label_im(text, **kwargs):
 def get_preview_image():
     context = get_label_context(request)
     im = create_label_im(**context)
-    label_type = context['kind']
-    if label_type in (ROUND_DIE_CUT_LABEL,):
-        draw = ImageDraw.Draw(im)
-        draw.ellipse([(0, 0), (im.size[0] - 1, im.size[1] - 1)], outline='black')
     return_format = request.query.get('return_format', 'png')
     if return_format == 'base64':
         import base64
