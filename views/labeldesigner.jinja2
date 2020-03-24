@@ -12,6 +12,30 @@
   <div class="row">
     <div class="col-md-4">
       <fieldset class="form-group">
+        <label for="previewImg">Label Preview:</label><br />
+        <img id="previewImg" style="border: 1px solid #444; max-height: 350px; width: auto; max-width: 100%; margin-bottom: 10px;"/>
+        <p>Printed size w/o margins: <span id="labelWidth">?</span> cm x <span id="labelHeight">?</span> cm</p>
+        <button id="printButton" type="button" class="btn btn-primary btn-block btn-lg" onClick="print()">
+          <span class="glyphicon glyphicon-print" aria-hidden="true"></span> Print
+        </button>
+      </fieldset>
+      <div class="panel panel-default">
+        <div class="panel-heading">
+          <h3 class="panel-title"><span class="glyphicon glyphicon-console" aria-hidden="true" style="margin-right: 0.3em"></span> Status</h3>
+        </div>
+        <div id="statusPanel" class="panel-body">
+          - undefined -
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <fieldset class="form-group">
+        <label for="labelText">Label Text:</label>
+        <textarea rows="7" id="labelText" class="form-control" onChange="preview()" onInput="preview()"></textarea>
+      </fieldset>
+    </div>
+    <div class="col-md-4">
+      <fieldset class="form-group">
         <div class="panel-group" id="accordion">
           <div class="panel panel-default">
             <div class="panel-heading">
@@ -104,30 +128,6 @@
           </div>
         </div>
       </fieldset>
-    </div>
-    <div class="col-md-4">
-      <fieldset class="form-group">
-        <label for="labelText">Label Text:</label>
-        <textarea rows="7" id="labelText" class="form-control" onChange="preview()" onInput="preview()"></textarea>
-      </fieldset>
-    </div>
-    <div class="col-md-4">
-      <fieldset class="form-group">
-        <label for="previewImg">Label Preview:</label><br />
-        <img id="previewImg" style="border: 1px solid #444; max-height: 350px; width: auto; max-width: 100%; margin-bottom: 10px;"/>
-        <p>Printed size w/o margins: <span id="labelWidth">?</span> cm x <span id="labelHeight">?</span> cm</p>
-        <button id="printButton" type="button" class="btn btn-primary btn-block btn-lg" onClick="print()">
-          <span class="glyphicon glyphicon-print" aria-hidden="true"></span> Print
-        </button>
-      </fieldset>
-      <div class="panel panel-default">
-        <div class="panel-heading">
-          <h3 class="panel-title"><span class="glyphicon glyphicon-console" aria-hidden="true" style="margin-right: 0.3em"></span> Status</h3>
-        </div>
-        <div id="statusPanel" class="panel-body">
-          - undefined -
-        </div>
-      </div>
     </div>
   </div>
 {% endblock %}
