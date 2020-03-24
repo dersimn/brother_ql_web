@@ -19,3 +19,12 @@ textarea#labelText {
 .roundPreviewImage {
     border-radius: 100%;
 }
+
+#previewImg {
+    border: 1px solid #444;
+    max-height: 350px;
+    width: auto;
+    max-width: 100%;
+    display: block;
+    margin: 0 auto 10px auto;
+}
