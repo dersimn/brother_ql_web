@@ -1,0 +1,89 @@
+name: Nightly rebuild trigger
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron:  '38 3 * * *'
+
+jobs:
+  filter-update-tags:
+    name: Get Tags and filter Outputs
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{steps.getdata.outputs.versions }}
+    steps:
+      - name: Get GitHub tags and filter outputs
+        id: getdata
+        uses: satackey/action-js-inline@v0.0.2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          required-packages: semver
+          script: |
+            const semver = require('semver')
+            const github = require('@actions/github');
+            const core = require('@actions/core');
+            
+            const octokit = github.getOctokit(process.env.GITHUB_TOKEN)
+
+            core.startGroup('Get all GitHub tags');
+            const tags = [];
+            async function *listAllTags() {
+              let i = 1;
+              let tags_page;
+              do {
+                core.debug(`Loop: ${i}`);
+                const response = await octokit.rest.repos.listTags({
+                  owner: github.context.repo.owner,
+                  repo: github.context.repo.repo,
+                  per_page: 100,
+                  page: i++
+                });
+                tags_page = response.data.map(t => t.name);
+                core.debug(`Snippet: ${JSON.stringify(tags_page)}`);
+                yield tags_page;
+              } while (tags_page.length);
+            }
+            for await (const snippet of listAllTags()) {
+              tags.push(...snippet);
+            }
+            core.info(`Tags: ${JSON.stringify(tags)}`);
+            core.endGroup();
+
+            // Filter for SemVer-valid Git tags
+            core.startGroup('Filter tags');
+            const versions = tags.filter(t => semver.valid(t))
+                                 .filter(v => !semver.prerelease(v))
+                                 .filter(v => semver.major(v) != 0);
+            core.info(`Valid SemVer versions: ${JSON.stringify(versions)}`);
+
+            const allMajors = new Set(versions.map(v => semver.major(v)));
+            core.debug(`allMajors: ${JSON.stringify(allMajors)}`);
+
+            const ranges = [...allMajors].map(v => '~'+v);
+            core.debug(`ranges: ${JSON.stringify(ranges)}`);
+
+            const matches = new Set();
+            for (const range of ranges) {
+              const match = semver.maxSatisfying(versions, range);
+              if (match) matches.add(match);
+            }
+            core.info(`Matching versions: ${JSON.stringify([...matches])}`);
+            core.endGroup();
+
+            core.setOutput('versions', JSON.stringify([...matches]));
+
+  trigger-updates:
+    name: Trigger update for ${{ matrix.versions }}
+    needs: filter-update-tags
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        versions: ${{ fromJSON(needs.filter-update-tags.outputs.versions) }}
+    steps:
+      - name: Invoke workflow without inputs
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: docker-semver-tags-multiple-flavors.yaml
+          ref: ${{ matrix.versions }}
+          inputs: '{"force_build": false}'

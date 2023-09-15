@@ -1,0 +1,225 @@
+name: Docker build and publish
+run-name: Run for ${{ github.ref_name }} (${{github.ref_type}}, triggered by ${{ github.event_name }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: Force build even if base image was not updated
+        required: false
+        default: false
+        type: boolean
+  push:
+    branches:
+      # Run on every branch
+      - '**'
+      # Except branches beginning with:
+      - '!fail/**'
+      - '!dead-end/**'
+      - '!trash/**'
+    tags:
+      - 'v*.*.*'
+
+env:
+  TARGET_IMAGE: ${{ github.repository }}  # only if username + repository is all lowercase and the same as user + repo on Docker Hubs
+
+jobs:
+  tags:
+    name: Get Tags and extract Docker Tags
+    runs-on: ubuntu-latest
+    outputs:
+      this-version: ${{steps.getdata.outputs.this-version-tag }}
+      latest: ${{steps.getdata.outputs.latest-tag || 'false' }}
+      major: ${{steps.getdata.outputs.major-tag || 'false'}}
+      minor: ${{steps.getdata.outputs.minor-tag || 'false'}}
+    steps:
+      - name: Get Git tags and determine values
+        id: getdata
+        uses: satackey/action-js-inline@v0.0.2
+        if: ${{ github.ref_type == 'tag' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          required-packages: semver
+          script: |
+            const semver = require('semver');
+            const github = require('@actions/github');
+            const core = require('@actions/core');
+            
+            const octokit = github.getOctokit(process.env.GITHUB_TOKEN);
+
+            core.startGroup('Get all GitHub tags');
+            const tags = [];
+            async function *listAllTags() {
+              let i = 1;
+              let tags_page;
+              do {
+                core.debug(`Loop: ${i}`);
+                const response = await octokit.rest.repos.listTags({
+                  owner: github.context.repo.owner,
+                  repo: github.context.repo.repo,
+                  per_page: 100,
+                  page: i++
+                });
+                tags_page = response.data.map(t => t.name);
+                core.debug(`Snippet: ${JSON.stringify(tags_page)}`);
+                yield tags_page;
+              } while (tags_page.length);
+            }
+            for await (const snippet of listAllTags()) {
+              tags.push(...snippet);
+            }
+            core.info(`Tags: ${JSON.stringify(tags)}`);
+            core.endGroup();
+
+            // Filter for SemVer-valid Git tags
+            core.startGroup('Filter tags');
+            const versions = tags.filter(t => semver.valid(t))
+                                 .filter(v => semver.major(v) != 0);
+            core.info(`Valid SemVer versions: ${JSON.stringify(versions)}`);
+
+            const version = '${{ github.ref_name }}';  // TODO: find a more elegant solution to this problem
+            core.info(`Our version: ${version}`);
+
+            core.endGroup();
+
+            // Outputs
+            core.startGroup('Outputs');
+
+            const thisVersionTag = semver.clean(version);
+            const latestTag = semver.maxSatisfying(versions, '*') == version;
+            const majorTag = semver.maxSatisfying(versions, '~'+semver.major(version)) == version;
+            const minorTag = semver.maxSatisfying(versions, '~'+semver.major(version)+'.'+semver.minor(version)) == version;
+
+            core.info(`this-version-tag: ${thisVersionTag}`);
+            core.info(`latest-tag: ${latestTag}`);
+            core.info(`major-tag: ${majorTag}`);
+            core.info(`minor-tag: ${minorTag}`);
+
+            core.setOutput('this-version-tag', thisVersionTag);
+            core.setOutput('latest-tag', latestTag);
+            core.setOutput('major-tag', majorTag);
+            core.setOutput('minor-tag', minorTag);
+            core.endGroup();
+
+  release:
+    name: Build ${{ matrix.flavor }}
+    needs: tags
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # - flavor: alpine  # Name e.g. some different base-image
+          #   # The flavor with "default-flavor: true" additionally gets the suffix-less Docker tag, e.g. "mybranch-myflavor" and additionally only "mybranch" while all other flavors only have their usual "mybranch-myotherflavor".
+          #   default-flavor: false
+          #   base-image: alpine:3  # Base image, usually first line of Dockerfile e.g.: `FROM alpine:3`
+          #   dockerfile: ./Dockerfile-alpine  # Dockerfile to use with this flavor
+          #   build-platforms: linux/386,linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64/v8,linux/ppc64le,linux/s390x
+          - flavor: alpine
+            base-image: python:3-alpine
+            dockerfile: ./Dockerfile-alpine
+            build-platforms: linux/386,linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64/v8,linux/ppc64le,linux/s390x
+          - flavor: debian
+            default-flavor: true
+            base-image: python:3
+            dockerfile: ./Dockerfile-debian
+            build-platforms: linux/386,linux/amd64,linux/arm/v5,linux/arm/v7,linux/arm64/v8,linux/ppc64le,linux/s390x
+    steps:
+      - name: Check if update for base image is available
+        id: check
+        uses: lucacome/docker-image-update-checker@v1
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        with:
+          base-image: ${{ matrix.base-image }}
+          image: ${{ env.TARGET_IMAGE }}:${{ needs.tags.outputs.this-version }}-${{ matrix.flavor }}
+          # Platforms containing variants are (at the moment) not supported by
+          # update checker, see
+          # <https://github.com/lucacome/docker-image-update-checker/issues/27>.
+          # Workaround: Don't use platform at all. Defaults to check only
+          # `linux/amd64`, since almost every image has at least `linux/amd64`
+          # platform and images are usually updated for all platforms at the
+          # same time, this should be fine for now.
+          #platforms: ${{ matrix.build-platforms }}
+
+      - name: Decide to continue or skip
+        id: should-build
+        # If check-step was skipped, output variable will be empty
+        run: echo continue=${{ (steps.check.outputs.needs-updating == 'true') || (github.event_name != 'workflow_dispatch') || inputs.force_build }} >> $GITHUB_OUTPUT
+
+      - name: Checkout
+        uses: actions/checkout@v3
+        if: ${{ steps.should-build.outputs.continue == 'true' }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v4
+        if: ${{ steps.should-build.outputs.continue == 'true' }}
+        with:
+          images: ${{ env.TARGET_IMAGE }}
+          flavor: |
+            latest=false
+          tags: |
+            # Semantic Versioning
+            # 1.1.2-build.20220815T2015
+            type=semver,pattern={{version}},suffix=-build.{{date 'YYYYMMDDTHHmm'}},enable=${{ matrix.default-flavor || 'false' }}
+            # 1.1.2-build.20220815T2015-myflavor
+            type=semver,pattern={{version}},suffix=-build.{{date 'YYYYMMDDTHHmm'}}-${{ matrix.flavor }}
+            # 1.1.2
+            type=semver,pattern={{version}},enable=${{ matrix.default-flavor || 'false' }}
+            # 1.1.2-myflavor
+            type=semver,pattern={{version}},suffix=-${{ matrix.flavor }}
+            # 1.1
+            type=semver,pattern={{major}}.{{minor}},enable=${{ (needs.tags.outputs.minor == 'true') && matrix.default-flavor || 'false' }}
+            # 1.1-myflavor
+            type=semver,pattern={{major}}.{{minor}},suffix=-${{ matrix.flavor }},enable=${{ (needs.tags.outputs.minor == 'true') || 'false' }}
+            # 1 (disabled if major is zero)
+            type=semver,pattern={{major}},enable=${{ (needs.tags.outputs.major == 'true') && matrix.default-flavor || 'false' }}
+            # 1-myflavor
+            type=semver,pattern={{major}},suffix=-${{ matrix.flavor }},enable=${{ (needs.tags.outputs.major == 'true') || 'false' }}
+            # latest
+            type=raw,value=latest,enable=${{ (needs.tags.outputs.latest == 'true') && matrix.default-flavor || 'false' }}
+            # myflavor
+            type=raw,value=${{ matrix.flavor }},enable=${{ (needs.tags.outputs.latest == 'true') || 'false' }}
+
+            # Branch name WITHOUT suffix for default flavor
+            type=ref,event=branch,prefix=dev-,enable=${{ matrix.default-flavor || 'false' }}
+            # Branch name WITH suffix for every branch & flavor
+            type=ref,event=branch,prefix=dev-,suffix=-${{ matrix.flavor }}
+            
+            # Commit short SHA WITHOUT suffix for default flavor
+            #type=sha,enable=${{ matrix.default-flavor || 'false' }}
+            # Commit short SHA WITH suffix every flavor: sha-ad132f5-myflavor
+            #type=sha,suffix=-${{ matrix.flavor }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+        if: ${{ steps.should-build.outputs.continue == 'true' }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+        if: ${{ steps.should-build.outputs.continue == 'true' }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        if: ${{ steps.should-build.outputs.continue == 'true' }}
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME || github.repository_owner }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v4
+        if: ${{ steps.should-build.outputs.continue == 'true' }}
+        with:
+          push: true
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.build-platforms }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Summary
+        run: |
+          echo "Pushed Docker Tags:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo '${{ steps.meta.outputs.tags }}' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
