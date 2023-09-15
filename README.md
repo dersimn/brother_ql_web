@@ -1,5 +1,5 @@
 > [!NOTE]
-> Branches/tags in this repo beginning with v1.x are forked from [pklaus](https://github.com/pklaus/brother_ql_web).
+> Branches/tags in this repo beginning with v1.x are forked from [pklaus](https://github.com/pklaus/brother_ql_web).  
 > Branches ≥2.x are based on the work of [Noloxs](https://github.com/Noloxs/brother_ql_web).
 
 
